@@ -16,7 +16,6 @@ from pandas.core.arrays import ExtensionArray
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import CountVectorizer
 import requests
-from google.colab import files
 import matplotlib.pyplot as plt
 import nltk
 nltk.download('stopwords')
@@ -26,51 +25,66 @@ from scipy import sparse
 import seaborn as sns
 
 #datafileID:1BrOgf9tsVnDhbROxcvUibBaAzgOmBAFO
-!pip install PyDrive
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
-from google.colab import auth
-from oauth2client.client import GoogleCredentials
-auth.authenticate_user()
-gauth = GoogleAuth()
-gauth.credentials = GoogleCredentials.get_application_default()
-drive = GoogleDrive(gauth)
-downloaded = drive.CreateFile({'id':"1BrOgf9tsVnDhbROxcvUibBaAzgOmBAFO"})   
-downloaded.GetContentFile('final.csv')    
-download1 = drive.CreateFile({})   
+# !pip install PyDrive
+# from pydrive.auth import GoogleAuth
+# from pydrive.drive import GoogleDrive
+# from google.colab import auth
+# from oauth2client.client import GoogleCredentials
+# auth.authenticate_user()
+# gauth = GoogleAuth()
+# gauth.credentials = GoogleCredentials.get_application_default()
+# drive = GoogleDrive(gauth)
+# downloaded = drive.CreateFile({'id':"1BrOgf9tsVnDhbROxcvUibBaAzgOmBAFO"})   
+# downloaded.GetContentFile('final.csv')    
+# download1 = drive.CreateFile({})   
 
 
-
-#Pre-processing
-data = pd.read_csv('final.csv')
+# Pre-Processing: 
+  # Read in csv file with patient age, sex, has_bh_specialist fields. 
+  # Replace empty/null fields with " " instead
+  # Replace male/female with 0 and 1 -> easier for consine_similarity function to ingest
+#### When testing, replace value of patient_info_file with your a file name IF in the same current working directory, 
+  #### else replace with the whole file path 
+patient_info_file = '/Users/aliristang/Desktop/AIHacks/final.csv'
+data = pd.read_csv(patient_info_file , encoding='utf-8')
 data['age'].fillna(' ', inplace = True)
 data['sex'].replace('Male', 0, inplace = True)
 data['sex'].replace('Female', 1, inplace= True)
+
+test_data = data[0:50]
+# print(data)
+# print(test_data)
+
+### DEFINED TEST_DATA HERE
+data = test_data
 #print(data)
 
-!pip install youtube_transcript_api
-from youtube_transcript_api import YouTubeTranscriptApi
-
-#Merging data for each patient into patient info + url of videos watchrd
+# Merges all rows for each patient into 1 by concatenating all url links they've watched
 last_patient_id = 26207
 similar_patients = data
 for i, text in enumerate(data['patient_id']): 
-  if data['patient_id'][i] == last_patient_id:
+  if data.loc[i, 'patient_id'] == last_patient_id:
     if i > 0:
-      similar_patients['url'][i] =  similar_patients['url'][i-1] + " " + similar_patients['url'][i]
+      similar_patients.loc[i, 'keywords'] = similar_patients.loc[i - 1, 'url'] + " " + similar_patients.loc[i, 'url'] 
       similar_patients.drop([i-1], inplace = True)
   else:
+    similar_patients.loc[i - 1, 'keywords'] = similar_patients.loc[i - 1, 'keywords'] + " " + " " + str(similar_patients.loc[i, 'age']) + " " + str(similar_patients.loc[i, 'sex']) + " " + str(similar_patients.loc[i, 'has_bh_specialist'])
     last_patient_id = data['patient_id'][i]
 
-#print(similar_patients)
+print("similar_patients")
+print(similar_patients)
+print(similar_patients.index)
 
+# print(similar_patients.iloc[0, 6])
 
-#cosine similarity
+#COSINE SIMILARITY
 
-#Convert to matrix
+#Learn vocabulary and converts current df to term-document matrix
 count = CountVectorizer()
-count_matrix = count.fit_transform(similar_patients).astype(float)
+count_matrix = count.fit_transform(similar_patients['keywords']).astype(float)
 
+#Define chunk size, or how many groups we run consine_similarity on, and convert matrix to float16 to reduce memory use.
+#Done to make it computationally manageable for computer.
 chunk_size = 50
 matrix_len = count_matrix.shape[0]
 norm_count = count_matrix.astype(np.float16)
@@ -89,25 +103,26 @@ for chunk_start in range(0, matrix_len, chunk_size):
     print(s)
   if i == 0:
     cosine_sim = similarity_cosine_by_chunk(chunk_start, chunk_start + chunk_size)
-
   else:
     cosine_similarity_chunk = similarity_cosine_by_chunk(chunk_start, chunk_start + chunk_size)
     cosine_sim = sparse.vstack((cosine_sim.astype(np.float16), cosine_similarity_chunk.astype(np.float16)))
-
-
   i = 1
   s = s + 1
 
-
-
+print()
 
 #function to find similar patients
-index_patients = pd.Series(similar_patients.index)
-
+index_patients = pd.Series(similar_patients['patient_id'])
+print(index_patients)
 
 def similar_users(id, cosine_sim = cosine_sim):
   similar_users = []
-  index_patients_input = index_patients[index_patients == id].index[0]
+  
+  for i, x in enumerate(index_patients):
+    if x == id:
+        index_patients_input = i
+  print(index_patients_input)
+  print(cosine_sim.astype('float32').todense())
   similar_score = pd.Series(np.squeeze(np.asarray(cosine_sim.astype('float32').todense()[index_patients_input]))).sort_values(ascending = False)
   top_5_patients = list(similar_score.iloc[1:6].index)
   for i in top_5_patients:
@@ -145,7 +160,3 @@ print(similar_users(26207))
 
 #patient_info1[[“patient_id”, “age”, “sex”, “has_bh_specialist”]]
 #define function to merge videos watches for each user
-
-
-
-"""# New Section"""
